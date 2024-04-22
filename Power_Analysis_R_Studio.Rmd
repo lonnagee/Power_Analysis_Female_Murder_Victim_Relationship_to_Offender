@@ -1,0 +1,353 @@
+---
+title: "Power Analysis of Female Murder Victim-Offender Relationship"
+author: "Amy Schneider & Alonna Guerrero"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(knitr)
+library(pwr)
+library(GGally)
+library(tidyverse)
+#tidyverse loads dyplyr
+```
+# Power Analysis of Victim-Offender Relationship in Murder/Non-negligent Manslaughter Crimes in 2020
+
+### Introduction
+
+In 2017, the United Nations Office on Drugs and Crime (UNODC) conducted a study investigating a reported increase in violence against women. This investigation found that a staggering number of women had not just been killed within the year, but that over half of these women were killed by someone they knew. On the International Day for the Elimination of Violence against Women in 2017, the UN first announced the data backed adage that "the most dangerous place in the world for a woman is inside of her own home". This quote resonates just as deeply in 2023 as it did in 2017, implying that violence against women is still astoundingly prominent in the world today. 
+
+Can the conclusion really be drawn that the perceived rate of violence against women is a genuine effect and not just due to chance? We set out to investigate the proportion of women who were killed by an intimate partner, and what the statistical significance of that proportion is.
+
+### Data Source
+
+Our data set is from the FBI's National Incident Based Reporting System, or NIBRS.  The NIBRS compiles data entered by individual law enforcement agencies based on criminal incidents and arrests  that occur within their jurisdiction.  There are several limitations to reporting of this data, which we will acknowledge.  Historically, crimes were reported in the Uniform Crime Reporting system, or UCR, but it was limited in scope and crime descriptors.
+
+The NIBRS was an improvement on this system, capturing more details about crimes to provide more insight into the offenses and greater detail on victim-offender relationship.  According to the [Bureau of Justice Statistics] (https://bjs.ojp.gov/national-incident-based-reporting-system-nibrs#chhas), the NIBRS captures detailed data about the characteristics of criminal incidents, including:
+
+* a broad array of offenses
+* types and amount of property lost
+* demographic information about victims, offenders, and persons arrested
+* what type of weapon, if any, was used in the incident
+
+The main limitations with this system and the data set is that the system is new, and was officially adopted in 2021.  The latest data set available to us was 2020.  With the memory of news articles highlighting the increase in child abuse, domestic violence, and divorce in 2020 due to COVID-19 stress, we wanted to dive into this data knowing it may be an underestimation of the true statistics and view it as a sample of the entire population of crimes.
+
+### Data Set
+
+The data available from NIBRS is available in several large files: Administration Extract, Incident Extract, Arrestee Extract, and Victim Extract.  Each data set has many attributes available related to the crime, and we chose to focus on the Victim Extract. We initially explored the data dictionary and data set to understand what the fields available were and how we could harness them to answer our questions.
+
+Specifically, we wanted to understand the relationship between murder/non-negligent manslaughter victims and offenders.  Our initial hypothesis was that female victims were most likely to be killed by an intimate partner, and we set out to understand if this was true in a statistically significant manner.  Our null hypothesis is then that female victims were not killed by intimate partners in a higher proportion than other relationship groupings. 
+
+### Data Cleanup and Manipulation
+
+The first step in our analysis was to explore the Victim Extract data, and we can start by loading it.
+
+```{r}
+# loading the data
+load(file='/Users/peach/Downloads/ICPSR_38566/DS0004/38566-0004-Data.rda')
+#load(file='/Users/amyschneider/Downloads/ICPSR_38566/DS0004/38566-0004-Data.rda')
+data<-da38566.0004
+```
+
+### Data Exploration
+
+We explored the expansive data collection and decided to filter it down to only the fields we needed for analysis. Of the 294 available columns, we only needed those relating to: victim's relationship to offender, victim sex, and type of crime (setting it equal to murder/non-negligent manslaughter). We then created a relationship grouping to categorize the 25 possible Relationship To Offender labels. Our groups include: Intimate Partner, Family Member, Friend / Otherwise Known, Stranger, Unknown.
+
+```{r}
+# filtering the data down to columns of interest:
+
+# V4032 - Relationship To Offender, 
+# V4019 - Sex Of Victim, 
+# V4007 - Type Of Crime (The first reported type of crime out of seven possible labels. None of the additional fields include "(091) Murder/Nonnegligent Manslaughter" so they were excluded)
+
+looking_for <- select(data, "V4007", "V4019", "V4032")
+looking_for <- filter(looking_for, V4007 == "(091) Murder/Nonnegligent Manslaughter")
+
+# Next we are going to separate the data into groups looking at the relationship to offender
+
+rel_specifics <- unique(looking_for$V4032)
+rel_specifics
+
+# Our groups will be:
+  # Intimate Partner ((01) Victim was Spouse , (02)	Victim was Common-Law Spouse, (18) Victim was Boyfriend/Girlfriend, (20) Homosexual Relationship, (21)	Victim was Ex-Spouse, (26)	Victim was Ex-Relationship (Ex-boyfriend/ex-girlfriend))
+
+  # Family Member ((03) Victim was Parent, (05) Victim was Child, (19) Victim was Child of Boyfriend/Girlfriend, (04) Victim was Sibling, (12) Victim was Other Family Member, (08) Victim was In-Law, (06) Victim was Grandparent, (09) Victim was Stepparent, (10) Victim was Stepchild, (07) Victim was Grandchild)
+
+  # Friend / Otherwise Known ((24) Victim was Otherwise Known, (14) Victim was Acquaintance,  (16) Victim was Neighbor, (15) Victim was Friend), (17) Victim was Babysittee (the baby))
+
+  # Stranger ((25) Victim was Stranger
+  # Unknown ((00) N offenders unknown)/N/A
+
+#create a new column with the relationship grouping identified usind indices of the rel_specifics
+
+looking_for <-
+  looking_for %>%
+  mutate(relationship_grouping = case_when(V4032 %in% rel_specifics[c(5, 7, 9, 11, 17, 23)] ~ "Intimate Partner", 
+                                                        V4032 %in% rel_specifics[c(3, 13, 15, 19, 21, 6, 16, 18, 20, 24)] ~ "Family Member",
+                                                        V4032 %in% rel_specifics[c(4, 8, 10, 12, 22)] ~ "Friend Otherwise Known",
+                                                        V4032 %in% rel_specifics[2] ~ "Stranger",
+                                                        TRUE ~ "Unknown"))
+                   
+#TRUE on line 68 means that anything not already bucketed will be placed in Unknown...used index number for the rel_specifics
+
+looking_for %>%
+  group_by(V4032) %>%
+  summarize(n())
+
+total <- nrow(looking_for)
+
+```
+
+Summarizing the data by the NIBRS field for victim's Relationship To Offender (V4032) allows us to look at the unique entries in this field, ensuring the ability to retrieve the counts of each label, allowing for categorical analysis.  At this point, we created a visualization of the overall data - looking at every reported victim killed by murder/nonnegligent manslaughter in 2020, and what their offender relationship was.
+
+```{r}
+looking_for %>%
+  select(relationship_grouping, V4019) %>%
+  drop_na() %>%
+  ggplot(aes(x = relationship_grouping, fill = V4019)) +
+  ggtitle("Offender Victim Relationships for Murder/Non-negligent Manslaughter 2020") + # for the main title
+  xlab("Victim Relationsip to Offender") +                  # for the x axis label 
+  ylab("Count of Victim") +
+  geom_bar(position = "dodge") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+This visualization provided some valuable information about the distribution of victim-offender relationships, and is separated by male and female victims. 
+
+The highest proportion found when looking at male victims is an unknown relationship to offender. The highest proportion of a known relationship to offender when looking at male victims is family member. Female victims had intimate partner as the highest proportion of relationship to offender, followed by the proportion of an unknown relationship to offender.
+
+The ggpairs plot below allows us to look at the relationship between gender and relationship grouping several ways, enhancing the above visualization.
+
+```{r}
+looking_for %>%
+  select(relationship_grouping, V4019) %>%
+  drop_na() %>%
+  ggpairs(mapping = aes(fill = V4019) ) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+table(looking_for$relationship_grouping, looking_for$V4019, useNA = "ifany") %>%
+  addmargins()
+
+```   
+In the bottom two quadrants of this plot, we can see that male victims hold a higher proportion of overall murder/non-negligent deaths than females. The scale of victim-offender relationships that are unknown for male victims, that we saw in our initial visualization, is further emphasized in the top two quadrants. While these plots do emphasize that most of the reported murder/non-negligent deaths in 2020 had male victims, the top two quadrants show that there were still more women killed by an intimate partner.
+
+### Female Data Refinement
+
+We further narrowed down the data "looking_for" to a dataframe with only female victim information. We separated out the data by relationship grouping, to gain a concise understanding of impact for the second part of our analysis.  Finally, we created a variable "female_ip_prop," which provides us with the proportion of victims whose relationship with the offender was an intimate relationship.
+
+```{r}
+# Female Data
+
+# Further narrowing down the data into (091) Murder/Nonnegligent Manslaughter cases of which the victim was female
+female_data <- filter(looking_for, V4019 == "(0) Female")
+
+intimate_partner_data <- filter(female_data, relationship_grouping == "Intimate Partner")
+family_member_data <- filter(female_data, relationship_grouping == "Family Member")
+friend_otherwise_known_data <- filter(female_data, relationship_grouping == "Friend Otherwise Known")
+stranger_data <- filter(female_data, relationship_grouping == "Stranger")
+unknown_data <- filter(female_data, relationship_grouping == "Unknown")
+
+f_total <- nrow(female_data)
+f_intimate_partner_count <- nrow(intimate_partner_data)
+f_family_count <- nrow(family_member_data)
+f_friend_otherwise_count <- nrow(friend_otherwise_known_data)
+f_stranger_count <- nrow(stranger_data)
+f_unknown_count <- nrow(unknown_data)
+
+female_ip_prop <- f_intimate_partner_count / f_total
+```
+
+### Female Data Relationship Grouping Exploration
+
+We repeated the original bar plot with our female victim only data, to gain a clear understanding of victim-offender relationship impacts (as the unknown victim-offender relationship proportion for male victims adds difficulty to truly see what is happening). Looking at this data, it is clear that the intimate partner is the highest proportion of the victim-offender relationship groupings, but an unknown victim-offender relationship is also very high. Additionally, the smallest relationship grouping proportion for female victims is Stranger. We found it interesting that so few of the reported murders/non-negligent deaths with female victims were perpetrated by stranger, as many highly publicized cases in recent history are alleged to be committed by either intimate partners or strangers. 
+
+```{r}
+
+looking_for %>%
+  select(relationship_grouping, V4019) %>%
+  filter(V4019 == "(0) Female") %>%
+  ggplot(aes(x = relationship_grouping, fill = V4019)) +
+  ggtitle("Female Victim-Offender Relationships for Murder/Non-negligent Manslaughter 2020") + # for the main title
+  xlab("Victim Relationsip to Offender") +                  # for the x axis label 
+  ylab("Count of Victim") +
+  geom_bar(position = "dodge", fill = "#F8766D") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+This gave us pause to understand at what point in investigations are crimes entered into NIBRS and if they are updated once more information is known about the assailants.  According to the [FBI's documentation](https://ucr.fbi.gov/nibrs/2012/resources/a-guide-to-understanding-nibrs) for law enforcement agencies on submission of crime data, there is no direction for agencies on timing of submission of crime data, however criteria for updates include those that change the statistics of the crime, add additional victims, or include correction of incorrect data provided.
+
+Based on all the information we found regarding the submission of data and updates, as well as the fact that many crimes may go unsolved for years on end, we chose to include the unknown data as unknowns within crime data will be an ever present limitation. Even if the data was updated eventually by law enforcement agencies, it may be updated at different points based on when new information was gathered on a case. 
+Furthermore, the proportion of intimate partner victim-offender relationships is based on the total number of murder/non-negligent deaths with female victims - meaning, the proportion could only increase with the unveiling of previously unknown victim-offender relationships.
+
+### Male Data Refinement
+
+We repeat this process of separating out data for the male data to examine the relationship between victim and offender and compare how the data is distributed.
+
+```{r}
+# Male Data
+
+# Further narrowing down the data into (091) Murder/Nonnegligent Manslaughter cases of which the victim was male
+male_data <- filter(looking_for, V4019 == "(1) Male")
+
+m_intimate_partner_data <- filter(male_data, relationship_grouping == "Intimate Partner")
+m_family_member_data <- filter(male_data, relationship_grouping == "Family Member")
+m_friend_otherwise_known_data <- filter(male_data, relationship_grouping == "Friend Otherwise Known")
+m_stranger_data <- filter(male_data, relationship_grouping == "Stranger")
+m_unknown_data <- filter(male_data, relationship_grouping == "Unknown")
+
+m_total <- nrow(male_data)
+m_intimate_partner_count <- nrow(m_intimate_partner_data)
+m_family_count <- nrow(m_family_member_data)
+m_friend_otherwise_count <- nrow(m_friend_otherwise_known_data)
+m_stranger_count <- nrow(m_stranger_data)
+m_unknown_count <- nrow(m_unknown_data)
+
+male_ip_prop <- m_intimate_partner_count / m_total
+```
+
+### Male Data Relationship Grouping Exploration
+
+Next, we explored the male data modifying the original bar plot to better understand the story it tells.
+
+```{r}
+looking_for %>%
+  select(relationship_grouping, V4019) %>%
+  filter(V4019 == "(1) Male") %>%
+  ggplot(aes(x = relationship_grouping, fill = V4019)) +
+  ggtitle("Male Victim-Offender Relationships for Murder/Non-negligent Manslaughter 2020") + # for the main title
+  xlab("Victim Relationsip to Offender") +                  # for the x axis label 
+  ylab("Count of Victim") +
+  geom_bar(position = "dodge", fill = "#00BFC4") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+When looking at male victims, the unknown victim-offender relationship bar is over three times the size of the next largest bar, family member.  Additional studies could be completed to understand why this is the case - hypothesis could include that these are gang-related or drug-related activities, etc. as the NIBRS data set provides a high level of detail in the Offense extract that could help us understand this question.
+
+For the purposes of our analysis, we can note that of the known relationships, the intimate partner relationship is the smallest of the relationship groupings. This stands out in contrast to the female data, where the intimate partner relationships is greater, even above the unknown cases.
+
+### Comparison of Male and Female Intimate Partner Proportions
+
+The data is certainly visually compelling, but wecan not be certain of our findings until we run a deeper analysis to address two key questions:
+  1. Are the male and female proportions of victim-offender intimate partner relationships statistically different from one another?
+  2. Can we be confident that these proportions represent a genuine pattern in our data, and are not due to chance?
+
+We ran a proportion test (2-sample test for equality of proportions with continuity correction) to address our first question. With a resulting p-value < 2.2e-16, we can confidently say that there a significant difference in proportion between women who were killed by intimate partners in 2020 when compared to men. 
+
+```{r}
+# Comparing Male and Female Statistics
+
+#Start with a prop test to ensure that there is a significant different between the male and female intimate partner relation proportions
+res <- prop.test(x = c(m_intimate_partner_count, f_intimate_partner_count), n = c(m_total, f_total))
+res
+
+res$p.value
+res$estimate
+```
+To address our second question, we conducted a power analysis first on the female data set then on the male data set for comparison.
+
+### Power Analysis
+
+A power analysis is a statistical test that can be conducted before or after a study takes place.  Performing a power analysis in advance of a study allows researchers to understand what sample size is necessary in order to gain meaningful statistically significant data, for example, during a randomized controlled trial.  A post hoc analysis is conducted after the fact to understand how much power is in the data to detect any statistically significant differences.  Retrospective analyses are not as common, however they help in understanding if there is a high potential of a type II error due to sample size. A type II error is the failure to reject a null hypothesis that is actually false. Our analysis is a retrospective analysis due to the nature of the data collection and timing of our work. The null hypothesis in our case, for females, is that there is no difference in the proportion of victim-offender relationships for intimate partners relative to other relationship groupings.
+
+To conduct our power analysis, we need to understand power, effect size, sample size and alpha. 
+
+  1. Power, is the probability between 0 and 1 that an effect that is present is detected. The closer a power rating is to 1, the more confident you can be that the effect you are     detecting is genuine and not due to chance. For example, with power = 0.80, if there are genuine effects to be found in 10 different studies, they will only be found in 8 of the     studies. Typically, it understood that a power score of 0.80 is a "good" power level.
+  2. Effect size shows you the proportion of what you are looking for in your data between 0 and 1. For our data, we utilized the calculated proportions from above.
+  3. Sample size is the number of people in a sample population.
+  4. Alpha is the significance level, typically set 0.05.
+
+Power, effect size, sample size and alpha are connected to the extent that each is a function of the other three. Since we knew the effect size, sample size, and alpha score of our female data set, we were able to calculate the overall power.
+
+```{r}
+
+# power analysis, using the proportion of intimate partner victim-offender relationship for female victims as calculated above:
+
+# What is the power for female ip_proportion in total woman murdered?
+pwr.p.test(h = female_ip_prop, n = f_total, sig.level = 0.05, power = NULL,
+    alternative = c("two.sided"))
+
+```
+With our data yielding a power rating of 1, we can confidently reject our null hypothesis. Additionally, we can assume that our proportions are ideal to support the null hypothesis of a smaller sample. Typically a power test would be used to determine the smallest sample size needed to yield a statistically significant and high power result. As stated above, "high power" is typically defined as 0.8. While maintaining a high power rating and the proven proportions, we can find what the smallest sample size needed to still accurately reject our null hypothesis is.
+
+```{r}
+# Finding the sample size for women that would yield a high power = .80
+pwr.p.test(h = female_ip_prop, n = NULL, sig.level = 0.05, power = .8,
+    alternative = c("two.sided"))
+
+predicted_women_killed_ip <- 66.54223*female_ip_prop
+predicted_women_killed_ip
+```
+By running this power analysis, we would be able to predict (with an 80% certainty) that the same intimate partner proportion from our larger data set would be found in a sample of 67 female murder/non-negligent death victims. Meaning, that we could confidently predict that approximately 23 of these women were killed by an intimate partner.
+
+### Male Power Test
+
+We then conducted the same power analyses for our male victim data set.
+
+```{r}
+
+# What is the power for men ip_proportion in total men murdered?
+pwr.p.test(h = male_ip_prop, n = m_total, sig.level = 0.05, power = NULL,
+    alternative = c("two.sided"))
+
+```
+Again, this power analysis yields a very high power rating of 0.9999999, and we can assume that our proportions are once again ideal to support the null hypothesis of a smaller sample. As we conducted a sample size investigation for our female data set, we will conduct the same analysis of our male data set using a power rating of 0.80.
+
+```{r}
+# Finding the sample size for men that would yield a high power (.80)
+pwr.p.test(h = male_ip_prop, n = NULL, sig.level = 0.05, power = .8,
+    alternative = c("two.sided"))
+
+predicted_men_killed_ip <-1223.045*male_ip_prop
+predicted_men_killed_ip
+
+```
+This analysis shows that the smallest sample size needed to maintain a high power (0.80) and consistent effect size is 1223. Of 1223 male murder/non-negligent death victims, we could confidently predict that approximately 97 of these men were killed by an intimate partner.
+
+### Direct Comparison of Genders
+
+It takes a sample size of about 67 women who were killed to be able to predict, with 80% confidence, the number of women murdered by an intimate partner. When you compare that with the smallest sample size needed to predict male victims of intimate partners with the same confidence level, we would need a sample of about 1223 male murder victims. With such significantly different sample sizes needed to maintain a high power, it can be challenging to see the true impact of these results. Our power analysis, therefore, cannot be complete until we look at a consistent sample size for both male and female populations. We chose to utilize the smallest sample size that we calculated above, which is approximately 67.
+
+```{r}
+# Finding the power of sample size 66.54223 for women using the female ip proportion (.80)
+power_f <- pwr.p.test(h = female_ip_prop, n = 66.54223, sig.level = 0.05, power = NULL,
+    alternative = c("two.sided"))
+power_f
+
+# Finding the power of sample size 66.54223 for men using the male ip proportion (.10)
+power_m <- pwr.p.test(h = male_ip_prop, n = 66.54223, sig.level = 0.05, power = NULL,
+    alternative = c("two.sided"))
+power_m
+
+plot(power_f, main = "Female Victims Power Analysis")
+plot(power_m, main = "Male Victims Power Analysis")
+
+```
+Once again, when looking at a sample of 67 female murder victims we can confidently predict, with a power rating of 0.8, that 23 of these women died at the hands of an intimate partner. When we look at the same sample size of 67 male murder victims, we would yield a power rating of 0.1. Meaning, we could not confidently predict how many of these men were killed by an intimate partner. The impact of these results is staggering. Women are so disproportionately killed at the hand of an intimate partner when compared to men, that the number of victims needed to prove the effect for women with statistical confidence would not even yield a usable prediction for men.
+
+### Model Analysis
+
+We were not able to confidently run a power analysis that included both male and female victim proportions and both sample sizes with meaningful results. Due to the large sample size disparity between our male and female victim data sets, and the significant effect size differences, one always overpowered the other. For example, if we were to run a power analysis looking at our male and female intimate partner relationship proportions in the total murder/non-negligent death population, the effect size for female victims overwhelmed the male victim effect size and still yielded a high power. When we break this calculation down into the male and female victim data set analysis we can clearly see there significant difference between the 0.8 power for female victims and the 0.1 power for male victims.
+
+Further limitations from our model are rooted in the limitations stemming from the NIBRS data set itself. The first data set limitation is in regards to the high count of unknown victim-offender relationships. Our initial worry was that the large number of unknown victim-offender relationships would incorrectly skew our data. For example, if all of those cases were solved tomorrow and the correct relationship groupings were assigned, would the effect sizes we found still be present? This is exactly what our initial power analysis proved. The results that we found in both the male and female victim data sets were without a doubt genuine effects in the data, and we can confidently state this with 99.99% and 100% certainty respectively. Therefore, even if all of the unknown cases were solved tomorrow, our effect sizes would still be statistically significant.
+
+An additional limitation from the NIBRS data set, is that the NIBRS was not officially rolled out until 2021, therefore, our 2020 data is not a comprehensive look at crime in United States. States such as California, New York, and Florida had not switched over to this new system at the time the 2020 data was collected. These states not only have high populations, but they tend to have high reported crime rates as well. If we were to add in the reported murder/non-negligent deaths from these missing states, we would need to rerun our study fully as sample sizes, intimate partner victim-offender relationship proportions, and power would all be effected.
+
+To enhance our model, we would propose a new project to include all missing state data and a deeper analysis around offender details and victim diversity statistics. For example, do most of the intimate partner offenders have a preexisting record in their local law enforcement agency? Are women of color more at risk to be killed at the hands of an intimate partner? What about victims who do not identify on the gender binary, are they disproportionately at risk to be murder/non-negligent death victims? Further analysis can provide a deeper and more thorough conclusion of the effect sizes we calculated and relative power of these findings.
+
+### Conclusion
+
+Not only has our analysis proved our initial hypothesis, that women are most likely to be killed by an intimate partner, but we additionally proved that this effect is significantly disproportionate when compared to male murder/non-negligent death victims. 2341 women were reported victims of murder or non-negligent death in 2020. 804 of these women died at the hands of an intimate partner. Yet, women are still not believed when they report intimate partner abuse. Women are not believed despite the fact that they are statistically more likely to be killed by their partner than they are by any other known and unknown relationship. If our analysis provides nothing more than a warning for women currently experiencing intimate partner abuse, it will have been well worth it. Seek help, find support.
+
+### Works Cited
+
+“Home, the Most Dangerous Place for Women, with Majority of Female Homicide Victims Worldwide Killed by Partners or Family, UNODC Study Says.” United Nations : Office on Drugs and Crime, https://www.unodc.org/unodc/en/press/releases/2018/November/home--the-most-dangerous-place-for-women--with-majority-of-female-homicide-victims-worldwide-killed-by-partners-or-family--unodc-study-says.html. 
+
+United States. Bureau of Justice Statistics. National Incident-Based Reporting System, 2020: Extract Files. Inter-university Consortium for Political and Social Research [distributor], 2022-11-22. https://doi.org/10.3886/ICPSR38566.v2
+
+
